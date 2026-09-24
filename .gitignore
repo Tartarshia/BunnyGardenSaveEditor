@@ -1,0 +1,7 @@
+# Never commit private saves, backups, or temporary write files.
+UserData
+UserData.bak-*
+UserData.tmp-*
+*.bak-*
+*.tmp-*
+dist/
