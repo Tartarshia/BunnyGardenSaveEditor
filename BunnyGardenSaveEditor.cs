@@ -164,10 +164,11 @@ internal sealed class EditorForm : Form
     private static readonly Color PalePink = Color.FromArgb(255, 244, 249);
     private static readonly Color Card = Color.FromArgb(255, 255, 255);
     private readonly ComboBox slots = new ComboBox(); private readonly TextBox[] input = new TextBox[4]; private readonly ComboBox dateBox = new ComboBox(); private readonly CheckBox dateCheck = new CheckBox(); private readonly CheckBox mirrors = new CheckBox(); private string path; private object data;
-    private void AddCard(int left, int top, int width, int height)
+    private Panel AddCard(int left, int top, int width, int height)
     {
         var card = new Panel { Left = left, Top = top, Width = width, Height = height, BackColor = Card, BorderStyle = BorderStyle.FixedSingle };
-        Controls.Add(card); card.SendToBack();
+        Controls.Add(card);
+        return card;
     }
     private static void StyleInput(Control control)
     {
@@ -180,26 +181,26 @@ internal sealed class EditorForm : Form
     public EditorForm()
     {
         Text = "兔兔秘密花园存档修改器"; Width = 760; Height = 550; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; BackColor = PalePink; Font = new Font("Segoe UI", 9F);
-        var header = new Panel { Left = 0, Top = 0, Width = 760, Height = 96, BackColor = Pink }; Controls.Add(header); header.SendToBack();
-        Controls.Add(new Label { Text = "BUNNY GARDEN", Left = 20, Top = 16, Width = 300, Height = 30, Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = Color.White, BackColor = Color.Transparent });
-        Controls.Add(new Label { Text = "本地存档修改器  ·  自动备份与读回验证", Left = 22, Top = 49, Width = 430, Height = 24, Font = new Font("Segoe UI", 9F), ForeColor = Color.FromArgb(255, 232, 241), BackColor = Color.Transparent });
-        var pathLabel = new Label { Left = 22, Top = 72, Width = 710, Height = 20, Font = new Font("Segoe UI", 8F), ForeColor = Color.FromArgb(255, 232, 241), BackColor = Color.Transparent, AutoEllipsis = true }; Controls.Add(pathLabel);
-        AddCard(18, 112, 724, 73); AddCard(18, 197, 724, 151); AddCard(18, 360, 724, 64); AddCard(18, 436, 724, 72);
-        Controls.Add(MakeLabel("选择存档槽位", 34, 122, 180));
-        slots.SetBounds(34, 146, 526, 28); slots.DropDownStyle = ComboBoxStyle.DropDownList; StyleInput(slots); Controls.Add(slots);
-        var choose = new Button { Text = "选择 UserData…", Left = 574, Top = 145, Width = 150, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(247, 222, 235), ForeColor = Ink }; choose.FlatAppearance.BorderColor = Pink; Controls.Add(choose);
+        var header = new Panel { Left = 0, Top = 0, Width = 760, Height = 96, BackColor = Pink }; Controls.Add(header);
+        header.Controls.Add(new Label { Text = "BUNNY GARDEN", Left = 20, Top = 16, Width = 300, Height = 30, Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = Color.White, BackColor = Pink });
+        header.Controls.Add(new Label { Text = "本地存档修改器  ·  自动备份与读回验证", Left = 22, Top = 49, Width = 430, Height = 24, Font = new Font("Segoe UI", 9F), ForeColor = Color.FromArgb(255, 232, 241), BackColor = Pink });
+        var pathLabel = new Label { Left = 22, Top = 72, Width = 710, Height = 20, Font = new Font("Segoe UI", 8F), ForeColor = Color.FromArgb(255, 232, 241), BackColor = Pink, AutoEllipsis = true }; header.Controls.Add(pathLabel);
+        var slotCard = AddCard(18, 112, 724, 73); var valuesCard = AddCard(18, 197, 724, 151); var dateCard = AddCard(18, 360, 724, 64); var safeCard = AddCard(18, 436, 724, 72);
+        slotCard.Controls.Add(MakeLabel("选择存档槽位", 15, 9, 180));
+        slots.SetBounds(15, 33, 526, 28); slots.DropDownStyle = ComboBoxStyle.DropDownList; StyleInput(slots); slotCard.Controls.Add(slots);
+        var choose = new Button { Text = "选择 UserData…", Left = 555, Top = 32, Width = 150, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(247, 222, 235), ForeColor = Ink }; choose.FlatAppearance.BorderColor = Pink; slotCard.Controls.Add(choose);
         string[] labels = { "金钱（0 至 99999999）", "花奈好感度（0 至 1000）", "凛好感度（0 至 1000）", "美羽香好感度（0 至 1000）" };
-        Controls.Add(MakeLabel("修改数值", 34, 207, 180));
-        for (int i = 0; i < 4; i++) { int column = i % 2; int row = i / 2; Controls.Add(MakeLabel(labels[i], 34 + column * 347, 239 + row * 48, 250)); input[i] = new TextBox { Left = 34 + column * 347, Top = 263 + row * 48, Width = 306, BorderStyle = BorderStyle.FixedSingle }; StyleInput(input[i]); Controls.Add(input[i]); }
-        Controls.Add(MakeLabel("游戏日期", 34, 371, 120));
-        Controls.Add(new Label { Text = "仅列出可操作的周六、周日", Left = 115, Top = 373, Width = 200, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), Font = new Font("Segoe UI", 8.5F), BackColor = Color.Transparent });
-        dateBox.SetBounds(34, 394, 306, 26); dateBox.DropDownStyle = ComboBoxStyle.DropDownList; StyleInput(dateBox); foreach (DateTime day in SaveCodec.PlayableDates()) dateBox.Items.Add(new GameDateChoice(day)); Controls.Add(dateBox);
-        dateCheck.Text = "启用日期跳转"; dateCheck.SetBounds(365, 392, 160, 26); dateCheck.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold); dateCheck.ForeColor = Ink; dateCheck.BackColor = Color.Transparent; Controls.Add(dateCheck);
+        valuesCard.Controls.Add(MakeLabel("修改数值", 15, 9, 180));
+        for (int i = 0; i < 4; i++) { int column = i % 2; int row = i / 2; valuesCard.Controls.Add(MakeLabel(labels[i], 15 + column * 347, 41 + row * 48, 250)); input[i] = new TextBox { Left = 15 + column * 347, Top = 65 + row * 48, Width = 306, BorderStyle = BorderStyle.FixedSingle }; StyleInput(input[i]); valuesCard.Controls.Add(input[i]); }
+        dateCard.Controls.Add(MakeLabel("游戏日期", 15, 9, 120));
+        dateCard.Controls.Add(new Label { Text = "仅列出可操作的周六、周日", Left = 96, Top = 11, Width = 200, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), Font = new Font("Segoe UI", 8.5F), BackColor = Card });
+        dateBox.SetBounds(15, 33, 306, 26); dateBox.DropDownStyle = ComboBoxStyle.DropDownList; StyleInput(dateBox); foreach (DateTime day in SaveCodec.PlayableDates()) dateBox.Items.Add(new GameDateChoice(day)); dateCard.Controls.Add(dateBox);
+        dateCheck.Text = "启用日期跳转"; dateCheck.SetBounds(346, 31, 160, 26); dateCheck.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold); dateCheck.ForeColor = Ink; dateCheck.BackColor = Card; dateCard.Controls.Add(dateCheck);
         dateCheck.CheckedChanged += delegate { dateBox.Enabled = dateCheck.Checked; };
         dateBox.Enabled = false;
-        mirrors.Text = "同步内容完全相同的 UserData 镜像（推荐 Steam 自动云存档）"; mirrors.SetBounds(34, 448, 455, 26); mirrors.Checked = true; mirrors.Font = new Font("Segoe UI", 9F); mirrors.ForeColor = Ink; mirrors.BackColor = Color.Transparent; Controls.Add(mirrors);
-        Controls.Add(new Label { Text = "先退出游戏；保存会创建备份、原子替换并读回验证。", Left = 34, Top = 476, Width = 455, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), Font = new Font("Segoe UI", 8.5F), BackColor = Color.Transparent });
-        var save = new Button { Text = "备份并保存修改", Left = 523, Top = 455, Width = 201, Height = 40, FlatStyle = FlatStyle.Flat, BackColor = Pink, ForeColor = Color.White, Font = new Font("Segoe UI", 10F, FontStyle.Bold) }; save.FlatAppearance.BorderSize = 0; Controls.Add(save);
+        mirrors.Text = "同步内容完全相同的 UserData 镜像（推荐 Steam 自动云存档）"; mirrors.SetBounds(15, 11, 455, 26); mirrors.Checked = true; mirrors.Font = new Font("Segoe UI", 9F); mirrors.ForeColor = Ink; mirrors.BackColor = Card; safeCard.Controls.Add(mirrors);
+        safeCard.Controls.Add(new Label { Text = "先退出游戏；保存会创建备份、原子替换并读回验证。", Left = 15, Top = 39, Width = 455, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), Font = new Font("Segoe UI", 8.5F), BackColor = Card });
+        var save = new Button { Text = "备份并保存修改", Left = 504, Top = 18, Width = 201, Height = 40, FlatStyle = FlatStyle.Flat, BackColor = Pink, ForeColor = Color.White, Font = new Font("Segoe UI", 10F, FontStyle.Bold) }; save.FlatAppearance.BorderSize = 0; safeCard.Controls.Add(save);
         slots.SelectedIndexChanged += delegate { if (slots.SelectedItem != null) Fill((Snapshot)slots.SelectedItem); };
         choose.Click += delegate { using (var dialog = new OpenFileDialog { Title = "选择 BUNNY GARDEN 的 UserData", Filter = "UserData|UserData|所有文件|*.*" }) if (dialog.ShowDialog() == DialogResult.OK) TryLoad(dialog.FileName, pathLabel); };
         save.Click += delegate { TrySave(pathLabel); };
