@@ -161,6 +161,8 @@ internal static class SaveCodec
         Array values = (Array)Get(data, field); int[] result = new int[values.Length]; for (int i = 0; i < result.Length; i++) result[i] = Convert.ToInt32(values.GetValue(i), CultureInfo.InvariantCulture); return result;
     }
     public static CollectionStatus Collections(object data) { return new CollectionStatus { EventCG = UnlockStates(data, "m_eventCGUnlockState"), ASMR = UnlockStates(data, "m_ASMRUnlockState"), MiniGame = UnlockStates(data, "m_minigameUnlockState") }; }
+    public static bool IsRichModeUnlocked(object data) { return (bool)Get(data, "m_unlockRichMode"); }
+    public static void UnlockRichMode(object data) { Set(data, "m_unlockRichMode", true); }
     public static void Apply(object data, int index, int money, float kana, float rin, float miuka, DateTime? date, int[] wardrobeStates)
     {
         object slot = Slots(data).GetValue(index);
@@ -179,14 +181,14 @@ internal static class SaveCodec
     {
         if (value.Money != money || Math.Abs(value.Kana - kana) > .001 || Math.Abs(value.Rin - rin) > .001 || Math.Abs(value.Miuka - miuka) > .001 || !value.WardrobeStates.SequenceEqual(wardrobeStates) || (date.HasValue && value.GameDate.Date != date.Value.Date)) throw new InvalidOperationException("写回验证失败：重新读取的数值与目标不一致。");
     }
-    public static string AtomicWrite(string path, byte[] bytes, int index, int money, float kana, float rin, float miuka, DateTime? date, int[] wardrobeStates)
+    public static string AtomicWrite(string path, byte[] bytes, int index, int money, float kana, float rin, float miuka, DateTime? date, int[] wardrobeStates, bool? richMode = null)
     {
         string backup = path + ".bak-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"); string temp = path + ".tmp-" + Process.GetCurrentProcess().Id;
         try {
             File.Copy(path, backup, false); File.WriteAllBytes(temp, bytes);
-            Verify(Snap(Slots(Read(File.ReadAllBytes(temp))).GetValue(index), index), money, kana, rin, miuka, date, wardrobeStates);
+            object staged = Read(File.ReadAllBytes(temp)); Verify(Snap(Slots(staged).GetValue(index), index), money, kana, rin, miuka, date, wardrobeStates); if (richMode.HasValue && IsRichModeUnlocked(staged) != richMode.Value) throw new InvalidOperationException("写回验证失败：致富模式旗标不一致。");
             File.Replace(temp, path, null);
-            Verify(Snap(Slots(Read(path)).GetValue(index), index), money, kana, rin, miuka, date, wardrobeStates);
+            object final = Read(path); Verify(Snap(Slots(final).GetValue(index), index), money, kana, rin, miuka, date, wardrobeStates); if (richMode.HasValue && IsRichModeUnlocked(final) != richMode.Value) throw new InvalidOperationException("写回验证失败：致富模式旗标不一致。");
             return backup;
         } finally { if (File.Exists(temp)) File.Delete(temp); }
     }
@@ -197,8 +199,8 @@ internal static class SaveCodec
         string path = FindSaves()[0]; object data = Read(path); Array slots = Slots(data); int index = -1;
         for (int i = 0; i < slots.Length; i++) if (Snap(slots.GetValue(i), i).Valid) { index = i; break; }
         if (index < 0) throw new InvalidOperationException("没有可用于内存测试的非空槽位。");
-        Snapshot original = Snap(slots.GetValue(index), index); DateTime date = new DateTime(2023, 8, 13); Apply(data, index, 123456, 1000, 999, 998, date, original.WardrobeStates);
-        Verify(Snap(Slots(Read(Pack(data))).GetValue(index), index), 123456, 1000, 999, 998, date, original.WardrobeStates);
+        Snapshot original = Snap(slots.GetValue(index), index); DateTime date = new DateTime(2023, 8, 13); Apply(data, index, 123456, 1000, 999, 998, date, original.WardrobeStates); UnlockRichMode(data);
+        object reread = Read(Pack(data)); Verify(Snap(Slots(reread).GetValue(index), index), 123456, 1000, 999, 998, date, original.WardrobeStates); if (!IsRichModeUnlocked(reread)) throw new InvalidOperationException("致富模式旗标内存往返验证失败。");
         Console.WriteLine("PASS: 未写入存档的内存读写验证通过。");
     }
 }
@@ -247,7 +249,8 @@ internal sealed class EditorForm : Form
         dateBox.Enabled = false;
         mirrors.Text = "同步内容完全相同的 UserData 镜像（推荐 Steam 自动云存档）"; mirrors.SetBounds(15, 11, 455, 26); mirrors.Checked = true; mirrors.Font = new Font("Segoe UI", 9F); mirrors.ForeColor = Ink; mirrors.BackColor = Card; safeCard.Controls.Add(mirrors);
         safeCard.Controls.Add(new Label { Text = "先退出游戏；保存会创建备份、原子替换并读回验证。", Left = 15, Top = 39, Width = 455, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), Font = new Font("Segoe UI", 8.5F), BackColor = Card });
-        var save = new Button { Text = "备份并保存修改", Left = 504, Top = 18, Width = 201, Height = 40, FlatStyle = FlatStyle.Flat, BackColor = Pink, ForeColor = Color.White, Font = new Font("Segoe UI", 10F, FontStyle.Bold) }; save.FlatAppearance.BorderSize = 0; safeCard.Controls.Add(save);
+        var rich = new Button { Text = "解锁致富模式", Left = 496, Top = 18, Width = 140, Height = 40, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(247, 222, 235), ForeColor = Ink, Font = new Font("Segoe UI", 9F, FontStyle.Bold) }; rich.FlatAppearance.BorderColor = Pink; safeCard.Controls.Add(rich);
+        var save = new Button { Text = "备份并保存修改", Left = 654, Top = 18, Width = 201, Height = 40, FlatStyle = FlatStyle.Flat, BackColor = Pink, ForeColor = Color.White, Font = new Font("Segoe UI", 10F, FontStyle.Bold) }; save.FlatAppearance.BorderSize = 0; safeCard.Controls.Add(save);
         characterTab.Controls.Add(new Label { Text = "关键日历与存档状态均为只读参考；本页不提供直接修改。", Left = 14, Top = 14, Width = 850, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), BackColor = PalePink });
         var calendarCard = AddCard(characterTab, 14, 40, 872, 102); calendarCard.Controls.Add(MakeLabel("一周目关键日历", 14, 8, 180));
         calendarCard.Controls.Add(new Label { Text = "花奈　生日邀请 06-24　·　旅行邀请 07-29　·　生日 / 原创香槟 08-13　·　告白判定 09-17", Left = 16, Top = 33, Width = 830, Height = 20, ForeColor = Ink, BackColor = Card });
@@ -262,6 +265,7 @@ internal sealed class EditorForm : Form
         slots.SelectedIndexChanged += delegate { if (slots.SelectedItem != null) Fill((Snapshot)slots.SelectedItem); };
         choose.Click += delegate { using (var dialog = new OpenFileDialog { Title = "选择 BUNNY GARDEN 的 UserData", Filter = "UserData|UserData|所有文件|*.*" }) if (dialog.ShowDialog() == DialogResult.OK) TryLoad(dialog.FileName, pathLabel); };
         save.Click += delegate { TrySave(pathLabel); };
+        rich.Click += delegate { TryUnlockRich(pathLabel); };
         try { TryLoad(SaveCodec.FindSaves()[0], pathLabel); } catch (Exception ex) { pathLabel.Text = "未自动载入存档：" + ex.Message; }
     }
     private void TryLoad(string savePath, Label label) { try { data = SaveCodec.Read(savePath); collections = SaveCodec.Collections(data); path = savePath; label.Text = path; slots.Items.Clear(); Array all = SaveCodec.Slots(data); for (int i = 0; i < all.Length; i++) { Snapshot s = SaveCodec.Snap(all.GetValue(i), i); if (s.Valid) slots.Items.Add(s); } if (slots.Items.Count == 0) throw new InvalidOperationException("该文件没有非空存档槽位。"); slots.SelectedIndex = 0; } catch (Exception ex) { MessageBox.Show(ex.Message, "无法读取存档", MessageBoxButtons.OK, MessageBoxIcon.Error); } }
@@ -285,6 +289,17 @@ internal sealed class EditorForm : Form
             string hash = SaveCodec.Sha256(path); var targets = mirrors.Checked ? SaveCodec.FindSaves(SaveCodec.GameRoot(path)).Where(p => SaveCodec.Sha256(p) == hash).ToList() : new List<string> { path }; var backups = new List<string>();
             foreach (string target in targets) { object targetData = SaveCodec.Read(target); SaveCodec.Apply(targetData, selected.Index, money, kana, rin, miuka, date, wardrobeStates); backups.Add(SaveCodec.AtomicWrite(target, SaveCodec.Pack(targetData), selected.Index, money, kana, rin, miuka, date, wardrobeStates)); }
             TryLoad(path, label); MessageBox.Show("修改完成并已读回验证。\n备份：\n" + string.Join("\n", backups), "完成");
+        } catch (Exception ex) { MessageBox.Show(ex.Message, "未写入存档", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+    private void TryUnlockRich(Label label)
+    {
+        try {
+            if (SaveCodec.GameRunning()) throw new InvalidOperationException("检测到游戏正在运行，请先退出游戏。"); if (data == null || slots.SelectedItem == null) throw new InvalidOperationException("请先读取并选择一个非空存档槽位。");
+            if (SaveCodec.IsRichModeUnlocked(data)) { MessageBox.Show("该存档已经解锁致富模式。", "无需修改"); return; }
+            if (MessageBox.Show("解锁致富模式？\n\n这会把存档的致富模式旗标设为已解锁。通常需要完成三位角色的个人路线后才会获得。\n\n仍会创建备份并读回验证。", "确认解锁", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+            Snapshot selected = (Snapshot)slots.SelectedItem; string hash = SaveCodec.Sha256(path); var targets = mirrors.Checked ? SaveCodec.FindSaves(SaveCodec.GameRoot(path)).Where(p => SaveCodec.Sha256(p) == hash).ToList() : new List<string> { path }; var backups = new List<string>();
+            foreach (string target in targets) { object targetData = SaveCodec.Read(target); Snapshot targetSlot = SaveCodec.Snap(SaveCodec.Slots(targetData).GetValue(selected.Index), selected.Index); SaveCodec.UnlockRichMode(targetData); backups.Add(SaveCodec.AtomicWrite(target, SaveCodec.Pack(targetData), selected.Index, targetSlot.Money, targetSlot.Kana, targetSlot.Rin, targetSlot.Miuka, null, targetSlot.WardrobeStates, true)); }
+            TryLoad(path, label); MessageBox.Show("致富模式已解锁并读回验证。\n备份：\n" + string.Join("\n", backups), "完成");
         } catch (Exception ex) { MessageBox.Show(ex.Message, "未写入存档", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 }
