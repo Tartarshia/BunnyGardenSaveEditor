@@ -249,7 +249,7 @@ internal sealed class EditorForm : Form
         dateBox.Enabled = false;
         mirrors.Text = "同步内容完全相同的 UserData 镜像（推荐 Steam 自动云存档）"; mirrors.SetBounds(15, 11, 455, 26); mirrors.Checked = true; mirrors.Font = new Font("Segoe UI", 9F); mirrors.ForeColor = Ink; mirrors.BackColor = Card; safeCard.Controls.Add(mirrors);
         safeCard.Controls.Add(new Label { Text = "先退出游戏；保存会创建备份、原子替换并读回验证。", Left = 15, Top = 39, Width = 455, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), Font = new Font("Segoe UI", 8.5F), BackColor = Card });
-        var rich = new Button { Text = "解锁致富模式", Left = 496, Top = 18, Width = 140, Height = 40, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(247, 222, 235), ForeColor = Ink, Font = new Font("Segoe UI", 9F, FontStyle.Bold) }; rich.FlatAppearance.BorderColor = Pink; safeCard.Controls.Add(rich);
+        var rich = new Button { Text = "解锁致富模式（仅新开档）", Left = 456, Top = 18, Width = 180, Height = 40, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(247, 222, 235), ForeColor = Ink, Font = new Font("Segoe UI", 9F, FontStyle.Bold) }; rich.FlatAppearance.BorderColor = Pink; safeCard.Controls.Add(rich);
         var save = new Button { Text = "备份并保存修改", Left = 654, Top = 18, Width = 201, Height = 40, FlatStyle = FlatStyle.Flat, BackColor = Pink, ForeColor = Color.White, Font = new Font("Segoe UI", 10F, FontStyle.Bold) }; save.FlatAppearance.BorderSize = 0; safeCard.Controls.Add(save);
         characterTab.Controls.Add(new Label { Text = "关键日历与存档状态均为只读参考；本页不提供直接修改。", Left = 14, Top = 14, Width = 850, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), BackColor = PalePink });
         var calendarCard = AddCard(characterTab, 14, 40, 872, 102); calendarCard.Controls.Add(MakeLabel("一周目关键日历", 14, 8, 180));
@@ -296,7 +296,7 @@ internal sealed class EditorForm : Form
         try {
             if (SaveCodec.GameRunning()) throw new InvalidOperationException("检测到游戏正在运行，请先退出游戏。"); if (data == null || slots.SelectedItem == null) throw new InvalidOperationException("请先读取并选择一个非空存档槽位。");
             if (SaveCodec.IsRichModeUnlocked(data)) { MessageBox.Show("该存档已经解锁致富模式。", "无需修改"); return; }
-            if (MessageBox.Show("解锁致富模式？\n\n这会把存档的致富模式旗标设为已解锁。通常需要完成三位角色的个人路线后才会获得。\n\n仍会创建备份并读回验证。", "确认解锁", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+            if (MessageBox.Show("解锁致富模式？\n\n这会把存档的致富模式旗标设为已解锁。通常需要完成三位角色的个人路线后才会获得。\n\n注意：仅对随后从标题界面新开的周目生效，已有槽位的金钱不会改变。\n\n仍会创建备份并读回验证。", "确认解锁", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
             Snapshot selected = (Snapshot)slots.SelectedItem; string hash = SaveCodec.Sha256(path); var targets = mirrors.Checked ? SaveCodec.FindSaves(SaveCodec.GameRoot(path)).Where(p => SaveCodec.Sha256(p) == hash).ToList() : new List<string> { path }; var backups = new List<string>();
             foreach (string target in targets) { object targetData = SaveCodec.Read(target); Snapshot targetSlot = SaveCodec.Snap(SaveCodec.Slots(targetData).GetValue(selected.Index), selected.Index); SaveCodec.UnlockRichMode(targetData); backups.Add(SaveCodec.AtomicWrite(target, SaveCodec.Pack(targetData), selected.Index, targetSlot.Money, targetSlot.Kana, targetSlot.Rin, targetSlot.Miuka, null, targetSlot.WardrobeStates, true)); }
             TryLoad(path, label); MessageBox.Show("致富模式已解锁并读回验证。\n备份：\n" + string.Join("\n", backups), "完成");
