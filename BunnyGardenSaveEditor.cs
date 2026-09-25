@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
@@ -30,6 +31,7 @@ internal sealed class Snapshot
 {
     public int Index; public bool Valid; public DateTime SaveDate; public DateTime GameDate;
     public int Money; public float Kana; public float Rin; public float Miuka;
+    public override string ToString() { return string.Format("槽位 {0:00}   保存于 {1:MM-dd HH:mm}   游戏日 {2:MM-dd}   金钱 {3:N0}", Index + 1, SaveDate, GameDate, Money); }
 }
 
 internal sealed class GameDateChoice
@@ -157,29 +159,53 @@ internal static class SaveCodec
 
 internal sealed class EditorForm : Form
 {
+    private static readonly Color Ink = Color.FromArgb(58, 42, 62);
+    private static readonly Color Pink = Color.FromArgb(226, 82, 139);
+    private static readonly Color PalePink = Color.FromArgb(255, 244, 249);
+    private static readonly Color Card = Color.FromArgb(255, 255, 255);
     private readonly ComboBox slots = new ComboBox(); private readonly TextBox[] input = new TextBox[4]; private readonly ComboBox dateBox = new ComboBox(); private readonly CheckBox dateCheck = new CheckBox(); private readonly CheckBox mirrors = new CheckBox(); private string path; private object data;
+    private void AddCard(int left, int top, int width, int height)
+    {
+        var card = new Panel { Left = left, Top = top, Width = width, Height = height, BackColor = Card, BorderStyle = BorderStyle.FixedSingle };
+        Controls.Add(card); card.SendToBack();
+    }
+    private static void StyleInput(Control control)
+    {
+        control.Font = new Font("Segoe UI", 10F); control.ForeColor = Ink; control.BackColor = Color.White;
+    }
+    private static Label MakeLabel(string text, int left, int top, int width)
+    {
+        return new Label { Text = text, Left = left, Top = top, Width = width, Height = 24, Font = new Font("Segoe UI", 9F, FontStyle.Bold), ForeColor = Ink, BackColor = Color.Transparent };
+    }
     public EditorForm()
     {
-        Text = "兔兔秘密花园存档修改器"; Width = 720; Height = 465; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false;
-        var pathLabel = new Label { Left = 18, Top = 15, Width = 660, Height = 37 }; Controls.Add(pathLabel);
-        slots.SetBounds(18, 53, 514, 28); slots.DropDownStyle = ComboBoxStyle.DropDownList; Controls.Add(slots);
-        var choose = new Button { Text = "选择 UserData…", Left = 548, Top = 52, Width = 130 }; Controls.Add(choose);
+        Text = "兔兔秘密花园存档修改器"; Width = 760; Height = 550; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; BackColor = PalePink; Font = new Font("Segoe UI", 9F);
+        var header = new Panel { Left = 0, Top = 0, Width = 760, Height = 96, BackColor = Pink }; Controls.Add(header); header.SendToBack();
+        Controls.Add(new Label { Text = "BUNNY GARDEN", Left = 20, Top = 16, Width = 300, Height = 30, Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = Color.White, BackColor = Color.Transparent });
+        Controls.Add(new Label { Text = "本地存档修改器  ·  自动备份与读回验证", Left = 22, Top = 49, Width = 430, Height = 24, Font = new Font("Segoe UI", 9F), ForeColor = Color.FromArgb(255, 232, 241), BackColor = Color.Transparent });
+        var pathLabel = new Label { Left = 22, Top = 72, Width = 710, Height = 20, Font = new Font("Segoe UI", 8F), ForeColor = Color.FromArgb(255, 232, 241), BackColor = Color.Transparent, AutoEllipsis = true }; Controls.Add(pathLabel);
+        AddCard(18, 112, 724, 73); AddCard(18, 197, 724, 151); AddCard(18, 360, 724, 64); AddCard(18, 436, 724, 72);
+        Controls.Add(MakeLabel("选择存档槽位", 34, 122, 180));
+        slots.SetBounds(34, 146, 526, 28); slots.DropDownStyle = ComboBoxStyle.DropDownList; StyleInput(slots); Controls.Add(slots);
+        var choose = new Button { Text = "选择 UserData…", Left = 574, Top = 145, Width = 150, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(247, 222, 235), ForeColor = Ink }; choose.FlatAppearance.BorderColor = Pink; Controls.Add(choose);
         string[] labels = { "金钱（0 至 99999999）", "花奈好感度（0 至 1000）", "凛好感度（0 至 1000）", "美羽香好感度（0 至 1000）" };
-        for (int i = 0; i < 4; i++) { Controls.Add(new Label { Text = labels[i], Left = 18, Top = 102 + 42 * i, Width = 245 }); input[i] = new TextBox { Left = 270, Top = 99 + 42 * i, Width = 180 }; Controls.Add(input[i]); }
-        Controls.Add(new Label { Text = "游戏日期（仅可操作的周六、周日）", Left = 18, Top = 270, Width = 245 });
-        dateBox.SetBounds(270, 267, 180, 26); dateBox.DropDownStyle = ComboBoxStyle.DropDownList; foreach (DateTime day in SaveCodec.PlayableDates()) dateBox.Items.Add(new GameDateChoice(day)); Controls.Add(dateBox);
-        dateCheck.Text = "修改游戏日期"; dateCheck.SetBounds(470, 267, 180, 26); Controls.Add(dateCheck);
+        Controls.Add(MakeLabel("修改数值", 34, 207, 180));
+        for (int i = 0; i < 4; i++) { int column = i % 2; int row = i / 2; Controls.Add(MakeLabel(labels[i], 34 + column * 347, 239 + row * 48, 250)); input[i] = new TextBox { Left = 34 + column * 347, Top = 263 + row * 48, Width = 306, BorderStyle = BorderStyle.FixedSingle }; StyleInput(input[i]); Controls.Add(input[i]); }
+        Controls.Add(MakeLabel("游戏日期", 34, 371, 120));
+        Controls.Add(new Label { Text = "仅列出可操作的周六、周日", Left = 115, Top = 373, Width = 200, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), Font = new Font("Segoe UI", 8.5F), BackColor = Color.Transparent });
+        dateBox.SetBounds(34, 394, 306, 26); dateBox.DropDownStyle = ComboBoxStyle.DropDownList; StyleInput(dateBox); foreach (DateTime day in SaveCodec.PlayableDates()) dateBox.Items.Add(new GameDateChoice(day)); Controls.Add(dateBox);
+        dateCheck.Text = "启用日期跳转"; dateCheck.SetBounds(365, 392, 160, 26); dateCheck.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold); dateCheck.ForeColor = Ink; dateCheck.BackColor = Color.Transparent; Controls.Add(dateCheck);
         dateCheck.CheckedChanged += delegate { dateBox.Enabled = dateCheck.Checked; };
         dateBox.Enabled = false;
-        mirrors.Text = "同步写入内容完全相同的 UserData 镜像（推荐 Steam 自动云存档）"; mirrors.SetBounds(18, 318, 650, 26); mirrors.Checked = true; Controls.Add(mirrors);
-        Controls.Add(new Label { Text = "请先退出游戏。跳转日期会同步前一天字段；每次写入均会备份并读回验证。", Left = 18, Top = 347, Width = 660, Height = 35 });
-        var save = new Button { Text = "备份并保存修改", Left = 510, Top = 385, Width = 168 }; Controls.Add(save);
+        mirrors.Text = "同步内容完全相同的 UserData 镜像（推荐 Steam 自动云存档）"; mirrors.SetBounds(34, 448, 455, 26); mirrors.Checked = true; mirrors.Font = new Font("Segoe UI", 9F); mirrors.ForeColor = Ink; mirrors.BackColor = Color.Transparent; Controls.Add(mirrors);
+        Controls.Add(new Label { Text = "先退出游戏；保存会创建备份、原子替换并读回验证。", Left = 34, Top = 476, Width = 455, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), Font = new Font("Segoe UI", 8.5F), BackColor = Color.Transparent });
+        var save = new Button { Text = "备份并保存修改", Left = 523, Top = 455, Width = 201, Height = 40, FlatStyle = FlatStyle.Flat, BackColor = Pink, ForeColor = Color.White, Font = new Font("Segoe UI", 10F, FontStyle.Bold) }; save.FlatAppearance.BorderSize = 0; Controls.Add(save);
         slots.SelectedIndexChanged += delegate { if (slots.SelectedItem != null) Fill((Snapshot)slots.SelectedItem); };
         choose.Click += delegate { using (var dialog = new OpenFileDialog { Title = "选择 BUNNY GARDEN 的 UserData", Filter = "UserData|UserData|所有文件|*.*" }) if (dialog.ShowDialog() == DialogResult.OK) TryLoad(dialog.FileName, pathLabel); };
         save.Click += delegate { TrySave(pathLabel); };
         try { TryLoad(SaveCodec.FindSaves()[0], pathLabel); } catch (Exception ex) { pathLabel.Text = "未自动载入存档：" + ex.Message; }
     }
-    private void TryLoad(string savePath, Label label) { try { data = SaveCodec.Read(savePath); path = savePath; label.Text = path; slots.Items.Clear(); Array all = SaveCodec.Slots(data); for (int i = 0; i < all.Length; i++) { Snapshot s = SaveCodec.Snap(all.GetValue(i), i); if (s.Valid) slots.Items.Add(s); } if (slots.Items.Count == 0) throw new InvalidOperationException("该文件没有非空存档槽位。"); slots.DisplayMember = "Index"; slots.SelectedIndex = 0; } catch (Exception ex) { MessageBox.Show(ex.Message, "无法读取存档", MessageBoxButtons.OK, MessageBoxIcon.Error); } }
+    private void TryLoad(string savePath, Label label) { try { data = SaveCodec.Read(savePath); path = savePath; label.Text = path; slots.Items.Clear(); Array all = SaveCodec.Slots(data); for (int i = 0; i < all.Length; i++) { Snapshot s = SaveCodec.Snap(all.GetValue(i), i); if (s.Valid) slots.Items.Add(s); } if (slots.Items.Count == 0) throw new InvalidOperationException("该文件没有非空存档槽位。"); slots.SelectedIndex = 0; } catch (Exception ex) { MessageBox.Show(ex.Message, "无法读取存档", MessageBoxButtons.OK, MessageBoxIcon.Error); } }
     private void Fill(Snapshot s) { input[0].Text = s.Money.ToString(); input[1].Text = s.Kana.ToString(CultureInfo.InvariantCulture); input[2].Text = s.Rin.ToString(CultureInfo.InvariantCulture); input[3].Text = s.Miuka.ToString(CultureInfo.InvariantCulture); for (int i = 0; i < dateBox.Items.Count; i++) if (((GameDateChoice)dateBox.Items[i]).Value.Date == s.GameDate.Date) { dateBox.SelectedIndex = i; break; } }
     private void TrySave(Label label)
     {
