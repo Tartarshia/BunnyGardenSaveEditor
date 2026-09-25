@@ -6,7 +6,7 @@ $dist = Join-Path $root 'dist'
 $stage = Join-Path $dist 'stage'
 $zip = Join-Path $dist "BunnyGardenSaveEditor-v$Version-windows.zip"
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
-foreach ($name in 'BunnyGardenSaveEditor.ps1', 'Launch-BunnyGardenSaveEditor.cmd', 'README.md', 'LICENSE') {
+foreach ($name in 'BunnyGardenSaveEditor.ps1', 'Launch-BunnyGardenSaveEditor.cmd', 'README.md', 'ACHIEVEMENTS.md', 'LICENSE') {
     Copy-Item -LiteralPath (Join-Path $root $name) -Destination (Join-Path $stage $name) -Force
 }
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }

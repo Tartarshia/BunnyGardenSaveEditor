@@ -3,8 +3,8 @@
 Offline Windows save editor for the Steam version of BUNNY GARDEN.
 
 It changes only a selected non-empty save slot's money and total affection for
-Kana, Rin, and Miuka. It does not unlock routes, alter dates, modify daily
-affection, or upload any data.
+Kana, Rin, and Miuka. It can also optionally change the in-game date. It does
+not unlock routes, modify daily affection, or upload any data.
 
 ## Use
 
@@ -21,6 +21,17 @@ temporary file plus atomic replacement, then decodes the result to verify the
 four changed values. When exact duplicate `UserData` mirrors exist, such as
 with Steam Auto-Cloud, it can update those copies together. Non-identical files
 are left untouched.
+
+### Date jumps
+
+Date changes are opt-in. The editor updates both the game date and its
+previous-day field, and only permits dates from `2023-05-06` through
+`2023-09-24`, the playable bar calendar. Use a separate backup for every
+achievement branch: event flags, invitations, and route progress are not reset
+when the date changes.
+
+See [ACHIEVEMENTS.md](ACHIEVEMENTS.md) for the birthday and travel invitation
+calendar plus a safe save-difference route.
 
 ## Validation
 
