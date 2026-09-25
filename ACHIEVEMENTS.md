@@ -1,40 +1,27 @@
-# One-run achievement route notes
+# 一周目全成就的存档差分路线
 
-These are route-planning notes for the original BUNNY GARDEN, not BUNNY GARDEN
-2. Make a separate backup before each event branch.
+本文针对原版《兔兔秘密花园》，不是《兔兔秘密花园 2》。建议在每个事件分支前保留一份独立备份。
 
-## Event calendar
+## 关键日历
 
-| Character | Birthday invitation day | Travel invitation day | Birthday |
+| 角色 | 生日邀请日 | 旅行邀请日 | 实际生日 |
 | --- | --- | --- | --- |
-| Kana | 2023-06-24 | 2023-07-29 | 2023-08-13 |
-| Rin | 2023-07-01 | 2023-08-06 | 2023-09-03 |
-| Miuka | 2023-07-08 | 2023-08-20 | 2023-08-27 |
+| 花奈 | 2023-06-24 | 2023-07-29 | 2023-08-13 |
+| 凛 | 2023-07-01 | 2023-08-06 | 2023-09-03 |
+| 美羽香 | 2023-07-08 | 2023-08-20 | 2023-08-27 |
 
-On an invitation day, use all three extensions and make the target character
-the third (last) selection. Community route testing reports affection level 1
-for a birthday invitation and level 2 for a travel invitation. The birthday
-achievement requires receiving that invitation, then attending the after-event
-on the actual birthday. Travel requires receiving its invitation and taking the
-trip when it becomes available.
+在邀请日，需要连续续杯三次，并让目标角色成为第三次（最后一次）选择。社区路线实测中，生日邀请约需要 1 格好感度，旅行邀请约需要 2 格好感度。拿到邀请后，再在实际生日参加 After，或在旅行开放后出行。
 
-## Original Champagne
+## 原创香槟
 
-Each character's Original Champagne achievement is awarded when their named
-champagne is bought. It appears on that character's birthday; plan to hold the
-money before jumping to the birthday date. The date alone is insufficient if
-the character-specific birthday event has not been made available.
+每位角色的“原创香槟”成就由实际购买该角色香槟触发。它与角色生日事件关联：应先确保已拿到该角色的生日资格，再跳到生日当天购买。只修改日期不会补发已经错过的资格。
 
-## Safe save-difference plan
+## 安全的存档差分顺序
 
-1. Keep one untouched base save before each invitation date.
-2. Set the target heroine's affection high enough, jump to her invitation day,
-   and complete the three-extension requirement.
-3. Make a new backup immediately after the invitation succeeds.
-4. Jump to her birthday for birthday + champagne, or to the travel opportunity
-   after its invitation for the trip achievement.
-5. Restore the base save and repeat for the next heroine.
+1. 在 6/24 前留一份没有触发邀请的基础存档。
+2. 把花奈好感度提高到足够值，跳到 6/24，完成三次续杯并拿到邀请；立即备份。
+3. 从该分支跳到 8/13，完成花奈生日和原创香槟；旅行成就则从“已获旅行邀请”的分支继续。
+4. 还原基础存档，对凛和美羽香重复同样流程。
+5. 三个个人 Happy Ending 都拿到后，再从合适分支走后宫 Happy Ending。
 
-The editor changes the calendar but deliberately does not forge invitation,
-event, route, or Steam achievement flags. Trigger each event in game so Steam
-records it normally.
+修改器只改金钱、三位角色好感度和可选日期；邀请、事件、路线和 Steam 成就都应在游戏中实际触发，让 Steam 正常记录。

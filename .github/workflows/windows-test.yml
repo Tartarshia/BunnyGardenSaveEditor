@@ -9,6 +9,6 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate public PowerShell source
-        shell: powershell
-        run: .\test_public.ps1
+      - name: Compile native Windows editor and scan public source
+        shell: cmd
+        run: test_public.cmd

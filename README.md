@@ -1,62 +1,40 @@
-# BUNNY GARDEN Save Editor
+# 兔兔秘密花园存档修改器
 
-Offline Windows save editor for the Steam version of BUNNY GARDEN.
+这是适用于 Steam Windows 版《兔兔秘密花园》（BUNNY GARDEN）的离线存档修改器。
 
-It changes only a selected non-empty save slot's money and total affection for
-Kana, Rin, and Miuka. It can also optionally change the in-game date. It does
-not unlock routes, modify daily affection, or upload any data.
+用户只需运行 EXE，不需要安装 Python，也不需要运行 PowerShell。首次运行启动器会用 Windows 自带的 .NET Framework 编译 EXE；之后可直接运行 `BunnyGardenSaveEditor.exe`。
 
-## Use
+## 功能
 
-1. Exit BUNNY GARDEN completely.
-2. Run `Launch-BunnyGardenSaveEditor.cmd`.
-3. Select a non-empty slot, enter the requested values, then confirm.
-4. Start the game and verify the changed values before continuing progress.
+- 修改指定非空槽位的金钱
+- 修改花奈、凛、美羽香的总好感度
+- 可选跳转游戏内日期
+- 自动识别标准 Steam 安装目录，也可手动选择 `UserData`
+- 自动备份、原子写入、写后读回验证
+- 当 Steam 自动云存档存在内容完全相同的镜像时，可同步更新镜像
 
-The editor discovers `UserData` beneath the standard Steam library path.
-`Choose UserData...` supports other Steam libraries and Steam accounts.
+本工具不解锁路线、不伪造成就、不修改每日好感度，也不会上传或收集存档。
 
-Each write creates a timestamped `.bak` alongside the edited save, uses a
-temporary file plus atomic replacement, then decodes the result to verify the
-four changed values. When exact duplicate `UserData` mirrors exist, such as
-with Steam Auto-Cloud, it can update those copies together. Non-identical files
-are left untouched.
+## 使用方法
 
-### Date jumps
+1. 完全退出游戏和 Steam 云同步等待状态。
+2. 双击 `Launch-BunnyGardenSaveEditor.cmd`。
+3. 选择非空槽位，填写数值；如需跳日期，再勾选“修改游戏日期”。
+4. 点击“备份并保存修改”。
+5. 启动游戏，确认数值和事件正常后再继续游玩。
 
-Date changes are opt-in. The editor updates both the game date and its
-previous-day field, and only permits dates from `2023-05-06` through
-`2023-09-24`, the playable bar calendar. Use a separate backup for every
-achievement branch: event flags, invitations, and route progress are not reset
-when the date changes.
+每次实际写入均会在原存档旁创建带时间戳的 `.bak` 备份。请保留它，直到确认游戏内读取正常。
 
-See [ACHIEVEMENTS.md](ACHIEVEMENTS.md) for the birthday and travel invitation
-calendar plus a safe save-difference route.
+## 日期跳转
 
-## Validation
+日期修改默认关闭。启用后会同步修改游戏日期与“前一天”字段，允许范围是 `2023-05-06` 至 `2023-09-24`，即酒吧可正常营业的主线日历。
 
-Run the public, game-independent checks:
+跳日期不会补发已经错过的邀请、重置事件标志或改变路线进度。全成就应在每个关键邀请日前留存档差分；详细路线见 [ACHIEVEMENTS.md](ACHIEVEMENTS.md)。
 
-```powershell
-.\test_public.ps1
-```
+## 构建与公开检查
 
-With the game and a local save installed, this optional integration check
-performs decode -> serialize -> compress -> decode entirely in memory and does
-not modify a save file:
+在 Windows 上运行 `build.cmd` 可从 `BunnyGardenSaveEditor.cs` 编译 EXE。运行 `package.cmd` 可生成发布 ZIP；运行 `test_public.cmd` 会编译源码并扫描常见个人路径和令牌模式。两项检查均不需要已安装游戏或个人存档。
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\test_local_save.ps1
-```
+## 兼容性与边界
 
-Create a redistributable ZIP with `./build.ps1 -Version 1.0.0`.
-
-## Compatibility and safety
-
-The current Steam/Windows format is
-`Deflate(BinaryFormatter(GB.Save.SaveData))`. The editor intentionally runs in
-Windows PowerShell 5.1, whose .NET Framework runtime contains the compatible
-BinaryFormatter implementation.
-
-Always retain the automatic backup and verify the result in game. Steam Cloud
-conflicts and game-version changes remain outside the editor's control.
+当前 Steam/Windows 存档格式为 `Deflate(BinaryFormatter(GB.Save.SaveData))`。工具调用游戏目录内已有的程序集读取该格式，因此需要本机安装游戏。游戏更新、Steam 云冲突和游戏内事件条件仍应由玩家在游戏内确认。
