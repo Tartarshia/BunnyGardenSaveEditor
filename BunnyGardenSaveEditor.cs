@@ -32,9 +32,17 @@ internal sealed class Snapshot
     public int Money; public float Kana; public float Rin; public float Miuka;
 }
 
+internal sealed class GameDateChoice
+{
+    public readonly DateTime Value;
+    public GameDateChoice(DateTime value) { Value = value; }
+    public override string ToString() { return Value.ToString("yyyy-MM-dd（dddd）", CultureInfo.GetCultureInfo("zh-CN")); }
+}
+
 internal static class SaveCodec
 {
     public const string DefaultRoot = @"C:\Program Files (x86)\Steam\steamapps\common\BUNNY GARDEN";
+    public const int MoneyMax = 99999999;
     private static string managedPath;
     private const BindingFlags FieldFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
 
@@ -52,6 +60,11 @@ internal static class SaveCodec
             .Where(p => p.IndexOf(@"\user\save\", StringComparison.OrdinalIgnoreCase) >= 0).OrderBy(p => p).ToList();
         if (result.Count == 0) throw new FileNotFoundException("没有找到 UserData 存档文件。");
         return result;
+    }
+    public static IEnumerable<DateTime> PlayableDates()
+    {
+        for (DateTime day = new DateTime(2023, 5, 6); day <= new DateTime(2023, 9, 24); day = day.AddDays(1))
+            if (day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday) yield return day;
     }
     private static void LoadTypes(string root)
     {
@@ -144,16 +157,20 @@ internal static class SaveCodec
 
 internal sealed class EditorForm : Form
 {
-    private readonly ComboBox slots = new ComboBox(); private readonly TextBox[] input = new TextBox[5]; private readonly CheckBox dateCheck = new CheckBox(); private readonly CheckBox mirrors = new CheckBox(); private string path; private object data;
+    private readonly ComboBox slots = new ComboBox(); private readonly TextBox[] input = new TextBox[4]; private readonly ComboBox dateBox = new ComboBox(); private readonly CheckBox dateCheck = new CheckBox(); private readonly CheckBox mirrors = new CheckBox(); private string path; private object data;
     public EditorForm()
     {
         Text = "兔兔秘密花园存档修改器"; Width = 720; Height = 465; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false;
         var pathLabel = new Label { Left = 18, Top = 15, Width = 660, Height = 37 }; Controls.Add(pathLabel);
         slots.SetBounds(18, 53, 514, 28); slots.DropDownStyle = ComboBoxStyle.DropDownList; Controls.Add(slots);
         var choose = new Button { Text = "选择 UserData…", Left = 548, Top = 52, Width = 130 }; Controls.Add(choose);
-        string[] labels = { "金钱（0 至 2000000000）", "花奈好感度（0 至 1000）", "凛好感度（0 至 1000）", "美羽香好感度（0 至 1000）", "游戏日期（yyyy-MM-dd）" };
-        for (int i = 0; i < 5; i++) { Controls.Add(new Label { Text = labels[i], Left = 18, Top = 102 + 42 * i, Width = 245 }); input[i] = new TextBox { Left = 270, Top = 99 + 42 * i, Width = 180 }; Controls.Add(input[i]); }
+        string[] labels = { "金钱（0 至 99999999）", "花奈好感度（0 至 1000）", "凛好感度（0 至 1000）", "美羽香好感度（0 至 1000）" };
+        for (int i = 0; i < 4; i++) { Controls.Add(new Label { Text = labels[i], Left = 18, Top = 102 + 42 * i, Width = 245 }); input[i] = new TextBox { Left = 270, Top = 99 + 42 * i, Width = 180 }; Controls.Add(input[i]); }
+        Controls.Add(new Label { Text = "游戏日期（仅可操作的周六、周日）", Left = 18, Top = 270, Width = 245 });
+        dateBox.SetBounds(270, 267, 180, 26); dateBox.DropDownStyle = ComboBoxStyle.DropDownList; foreach (DateTime day in SaveCodec.PlayableDates()) dateBox.Items.Add(new GameDateChoice(day)); Controls.Add(dateBox);
         dateCheck.Text = "修改游戏日期"; dateCheck.SetBounds(470, 267, 180, 26); Controls.Add(dateCheck);
+        dateCheck.CheckedChanged += delegate { dateBox.Enabled = dateCheck.Checked; };
+        dateBox.Enabled = false;
         mirrors.Text = "同步写入内容完全相同的 UserData 镜像（推荐 Steam 自动云存档）"; mirrors.SetBounds(18, 318, 650, 26); mirrors.Checked = true; Controls.Add(mirrors);
         Controls.Add(new Label { Text = "请先退出游戏。跳转日期会同步前一天字段；每次写入均会备份并读回验证。", Left = 18, Top = 347, Width = 660, Height = 35 });
         var save = new Button { Text = "备份并保存修改", Left = 510, Top = 385, Width = 168 }; Controls.Add(save);
@@ -163,16 +180,16 @@ internal sealed class EditorForm : Form
         try { TryLoad(SaveCodec.FindSaves()[0], pathLabel); } catch (Exception ex) { pathLabel.Text = "未自动载入存档：" + ex.Message; }
     }
     private void TryLoad(string savePath, Label label) { try { data = SaveCodec.Read(savePath); path = savePath; label.Text = path; slots.Items.Clear(); Array all = SaveCodec.Slots(data); for (int i = 0; i < all.Length; i++) { Snapshot s = SaveCodec.Snap(all.GetValue(i), i); if (s.Valid) slots.Items.Add(s); } if (slots.Items.Count == 0) throw new InvalidOperationException("该文件没有非空存档槽位。"); slots.DisplayMember = "Index"; slots.SelectedIndex = 0; } catch (Exception ex) { MessageBox.Show(ex.Message, "无法读取存档", MessageBoxButtons.OK, MessageBoxIcon.Error); } }
-    private void Fill(Snapshot s) { input[0].Text = s.Money.ToString(); input[1].Text = s.Kana.ToString(CultureInfo.InvariantCulture); input[2].Text = s.Rin.ToString(CultureInfo.InvariantCulture); input[3].Text = s.Miuka.ToString(CultureInfo.InvariantCulture); input[4].Text = s.GameDate.ToString("yyyy-MM-dd"); }
+    private void Fill(Snapshot s) { input[0].Text = s.Money.ToString(); input[1].Text = s.Kana.ToString(CultureInfo.InvariantCulture); input[2].Text = s.Rin.ToString(CultureInfo.InvariantCulture); input[3].Text = s.Miuka.ToString(CultureInfo.InvariantCulture); for (int i = 0; i < dateBox.Items.Count; i++) if (((GameDateChoice)dateBox.Items[i]).Value.Date == s.GameDate.Date) { dateBox.SelectedIndex = i; break; } }
     private void TrySave(Label label)
     {
         try {
             if (SaveCodec.GameRunning()) throw new InvalidOperationException("检测到游戏正在运行，请先退出游戏。"); if (slots.SelectedItem == null) throw new InvalidOperationException("请先选择存档槽位。");
-            int money; float kana, rin, miuka; if (!int.TryParse(input[0].Text, out money) || money < 0 || money > 2000000000) throw new InvalidOperationException("金钱必须是 0 至 2000000000 的整数。");
+            int money; float kana, rin, miuka; if (!int.TryParse(input[0].Text, out money) || money < 0 || money > SaveCodec.MoneyMax) throw new InvalidOperationException("金钱必须是 0 至 99999999 的整数。超过 1 亿会导致游戏内显示错误。");
             if (!float.TryParse(input[1].Text, NumberStyles.Float, CultureInfo.InvariantCulture, out kana) || kana < 0 || kana > 1000) throw new InvalidOperationException("花奈好感度必须是 0 至 1000 的数字。");
             if (!float.TryParse(input[2].Text, NumberStyles.Float, CultureInfo.InvariantCulture, out rin) || rin < 0 || rin > 1000) throw new InvalidOperationException("凛好感度必须是 0 至 1000 的数字。");
             if (!float.TryParse(input[3].Text, NumberStyles.Float, CultureInfo.InvariantCulture, out miuka) || miuka < 0 || miuka > 1000) throw new InvalidOperationException("美羽香好感度必须是 0 至 1000 的数字。");
-            DateTime? date = null; if (dateCheck.Checked) { DateTime parsed; if (!DateTime.TryParseExact(input[4].Text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed)) throw new InvalidOperationException("游戏日期必须是 yyyy-MM-dd。 "); if (parsed < new DateTime(2023, 5, 6) || parsed > new DateTime(2023, 9, 24)) throw new InvalidOperationException("游戏日期必须在 2023-05-06 至 2023-09-24 之间。"); date = parsed; }
+            DateTime? date = null; if (dateCheck.Checked) { if (dateBox.SelectedItem == null) throw new InvalidOperationException("请选择一个可操作的周六或周日。"); date = ((GameDateChoice)dateBox.SelectedItem).Value; }
             Snapshot selected = (Snapshot)slots.SelectedItem; string summary = string.Format("槽位 {0}\n金钱：{1}\n花奈 / 凛 / 美羽香：{2} / {3} / {4}\n游戏日期：{5}\n\n是否创建备份并写入？", selected.Index, money, kana, rin, miuka, date.HasValue ? date.Value.ToString("yyyy-MM-dd") : "不变");
             if (MessageBox.Show(summary, "确认修改", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
             string hash = SaveCodec.Sha256(path); var targets = mirrors.Checked ? SaveCodec.FindSaves(SaveCodec.GameRoot(path)).Where(p => SaveCodec.Sha256(p) == hash).ToList() : new List<string> { path }; var backups = new List<string>();
