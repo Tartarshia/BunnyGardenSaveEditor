@@ -31,6 +31,8 @@ internal sealed class Snapshot
 {
     public int Index; public bool Valid; public DateTime SaveDate; public DateTime GameDate;
     public int Money; public float Kana; public float Rin; public float Miuka;
+    // 顺序：花奈内裤、花奈裤袜、凛内裤、凛裤袜、美羽香内裤、美羽香裤袜。
+    public int[] WardrobeStates;
     public override string ToString() { return string.Format("槽位 {0:00}   保存于 {1:MM-dd HH:mm}   游戏日 {2:MM-dd}   金钱 {3:N0}", Index + 1, SaveDate, GameDate, Money); }
 }
 
@@ -39,6 +41,13 @@ internal sealed class GameDateChoice
     public readonly DateTime Value;
     public GameDateChoice(DateTime value) { Value = value; }
     public override string ToString() { return Value.ToString("yyyy-MM-dd（dddd）", CultureInfo.GetCultureInfo("zh-CN")); }
+}
+
+internal sealed class GiftStateChoice
+{
+    public readonly int Value;
+    public GiftStateChoice(int value) { Value = value; }
+    public override string ToString() { return Value == 0 ? "未购买" : (Value == 1 ? "已购买，未送出" : "已送出（会穿）"); }
 }
 
 internal static class SaveCodec
@@ -112,12 +121,29 @@ internal static class SaveCodec
         }
     }
     public static Array Slots(object data) { return (Array)Get(data, "m_savedGameData"); }
+    private static int WardrobeState(object slot, int charIndex, int presentType)
+    {
+        object charData = ((Array)Get(slot, "m_perCharacterDatas")).GetValue(charIndex);
+        object presents = Get(charData, "<PresentState>k__BackingField");
+        object present = ((Array)Get(presents, "m_presents")).GetValue(presentType);
+        return Convert.ToInt32(Get(present, "m_presentState"), CultureInfo.InvariantCulture);
+    }
+    private static void SetWardrobeState(object slot, int charIndex, int presentType, int state)
+    {
+        if (state < 0 || state > 2) throw new ArgumentOutOfRangeException("state");
+        object charData = ((Array)Get(slot, "m_perCharacterDatas")).GetValue(charIndex);
+        object presents = Get(charData, "<PresentState>k__BackingField");
+        object present = ((Array)Get(presents, "m_presents")).GetValue(presentType);
+        FieldInfo field = Field(present, "m_presentState");
+        field.SetValue(present, Enum.ToObject(field.FieldType, state));
+    }
     public static Snapshot Snap(object slot, int index)
     {
         Array c = (Array)Get(slot, "m_perCharacterDatas");
-        return new Snapshot { Index = index, Valid = (bool)Get(slot, "m_isValid"), SaveDate = (DateTime)Get(slot, "m_saveDate"), GameDate = (DateTime)Get(slot, "m_gameDate"), Money = (int)Get(slot, "m_money"), Kana = (float)Get(c.GetValue(0), "<Likability>k__BackingField"), Rin = (float)Get(c.GetValue(1), "<Likability>k__BackingField"), Miuka = (float)Get(c.GetValue(2), "<Likability>k__BackingField") };
+        int[] states = new int[6]; for (int i = 0; i < 3; i++) { states[i * 2] = WardrobeState(slot, i, 7); states[i * 2 + 1] = WardrobeState(slot, i, 5); }
+        return new Snapshot { Index = index, Valid = (bool)Get(slot, "m_isValid"), SaveDate = (DateTime)Get(slot, "m_saveDate"), GameDate = (DateTime)Get(slot, "m_gameDate"), Money = (int)Get(slot, "m_money"), Kana = (float)Get(c.GetValue(0), "<Likability>k__BackingField"), Rin = (float)Get(c.GetValue(1), "<Likability>k__BackingField"), Miuka = (float)Get(c.GetValue(2), "<Likability>k__BackingField"), WardrobeStates = states };
     }
-    public static void Apply(object data, int index, int money, float kana, float rin, float miuka, DateTime? date)
+    public static void Apply(object data, int index, int money, float kana, float rin, float miuka, DateTime? date, int[] wardrobeStates)
     {
         object slot = Slots(data).GetValue(index);
         if (!(bool)Get(slot, "m_isValid")) throw new InvalidOperationException("不能修改空存档槽位。");
@@ -127,20 +153,22 @@ internal static class SaveCodec
         if (property != null && property.CanWrite) property.SetValue(reactive, money, null);
         Array c = (Array)Get(slot, "m_perCharacterDatas"); float[] values = { kana, rin, miuka };
         for (int i = 0; i < 3; i++) Set(c.GetValue(i), "<Likability>k__BackingField", values[i]);
+        if (wardrobeStates == null || wardrobeStates.Length != 6) throw new ArgumentException("衣物礼物状态不完整。");
+        for (int i = 0; i < 3; i++) { SetWardrobeState(slot, i, 7, wardrobeStates[i * 2]); SetWardrobeState(slot, i, 5, wardrobeStates[i * 2 + 1]); }
         if (date.HasValue) { Set(slot, "m_gameDate", date.Value.Date); Set(slot, "m_gamePreviousDate", date.Value.Date.AddDays(-1)); }
     }
-    public static void Verify(Snapshot value, int money, float kana, float rin, float miuka, DateTime? date)
+    public static void Verify(Snapshot value, int money, float kana, float rin, float miuka, DateTime? date, int[] wardrobeStates)
     {
-        if (value.Money != money || Math.Abs(value.Kana - kana) > .001 || Math.Abs(value.Rin - rin) > .001 || Math.Abs(value.Miuka - miuka) > .001 || (date.HasValue && value.GameDate.Date != date.Value.Date)) throw new InvalidOperationException("写回验证失败：重新读取的数值与目标不一致。");
+        if (value.Money != money || Math.Abs(value.Kana - kana) > .001 || Math.Abs(value.Rin - rin) > .001 || Math.Abs(value.Miuka - miuka) > .001 || !value.WardrobeStates.SequenceEqual(wardrobeStates) || (date.HasValue && value.GameDate.Date != date.Value.Date)) throw new InvalidOperationException("写回验证失败：重新读取的数值与目标不一致。");
     }
-    public static string AtomicWrite(string path, byte[] bytes, int index, int money, float kana, float rin, float miuka, DateTime? date)
+    public static string AtomicWrite(string path, byte[] bytes, int index, int money, float kana, float rin, float miuka, DateTime? date, int[] wardrobeStates)
     {
         string backup = path + ".bak-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"); string temp = path + ".tmp-" + Process.GetCurrentProcess().Id;
         try {
             File.Copy(path, backup, false); File.WriteAllBytes(temp, bytes);
-            Verify(Snap(Slots(Read(File.ReadAllBytes(temp))).GetValue(index), index), money, kana, rin, miuka, date);
+            Verify(Snap(Slots(Read(File.ReadAllBytes(temp))).GetValue(index), index), money, kana, rin, miuka, date, wardrobeStates);
             File.Replace(temp, path, null);
-            Verify(Snap(Slots(Read(path)).GetValue(index), index), money, kana, rin, miuka, date);
+            Verify(Snap(Slots(Read(path)).GetValue(index), index), money, kana, rin, miuka, date, wardrobeStates);
             return backup;
         } finally { if (File.Exists(temp)) File.Delete(temp); }
     }
@@ -151,8 +179,8 @@ internal static class SaveCodec
         string path = FindSaves()[0]; object data = Read(path); Array slots = Slots(data); int index = -1;
         for (int i = 0; i < slots.Length; i++) if (Snap(slots.GetValue(i), i).Valid) { index = i; break; }
         if (index < 0) throw new InvalidOperationException("没有可用于内存测试的非空槽位。");
-        DateTime date = new DateTime(2023, 8, 13); Apply(data, index, 123456, 1000, 999, 998, date);
-        Verify(Snap(Slots(Read(Pack(data))).GetValue(index), index), 123456, 1000, 999, 998, date);
+        Snapshot original = Snap(slots.GetValue(index), index); DateTime date = new DateTime(2023, 8, 13); Apply(data, index, 123456, 1000, 999, 998, date, original.WardrobeStates);
+        Verify(Snap(Slots(Read(Pack(data))).GetValue(index), index), 123456, 1000, 999, 998, date, original.WardrobeStates);
         Console.WriteLine("PASS: 未写入存档的内存读写验证通过。");
     }
 }
@@ -163,7 +191,7 @@ internal sealed class EditorForm : Form
     private static readonly Color Pink = Color.FromArgb(226, 82, 139);
     private static readonly Color PalePink = Color.FromArgb(255, 244, 249);
     private static readonly Color Card = Color.FromArgb(255, 255, 255);
-    private readonly ComboBox slots = new ComboBox(); private readonly TextBox[] input = new TextBox[4]; private readonly ComboBox dateBox = new ComboBox(); private readonly CheckBox dateCheck = new CheckBox(); private readonly CheckBox mirrors = new CheckBox(); private string path; private object data;
+    private readonly ComboBox slots = new ComboBox(); private readonly TextBox[] input = new TextBox[4]; private readonly ComboBox[,] wardrobe = new ComboBox[3, 2]; private readonly ComboBox dateBox = new ComboBox(); private readonly CheckBox dateCheck = new CheckBox(); private readonly CheckBox mirrors = new CheckBox(); private string path; private object data;
     private Panel AddCard(int left, int top, int width, int height)
     {
         var card = new Panel { Left = left, Top = top, Width = width, Height = height, BackColor = Card, BorderStyle = BorderStyle.FixedSingle };
@@ -180,18 +208,24 @@ internal sealed class EditorForm : Form
     }
     public EditorForm()
     {
-        Text = "兔兔秘密花园存档修改器"; Width = 760; Height = 550; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; BackColor = PalePink; Font = new Font("Segoe UI", 9F);
+        Text = "兔兔秘密花园存档修改器"; Width = 760; Height = 670; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; BackColor = PalePink; Font = new Font("Segoe UI", 9F);
         var header = new Panel { Left = 0, Top = 0, Width = 760, Height = 96, BackColor = Pink }; Controls.Add(header);
         header.Controls.Add(new Label { Text = "BUNNY GARDEN", Left = 20, Top = 16, Width = 300, Height = 30, Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = Color.White, BackColor = Pink });
         header.Controls.Add(new Label { Text = "本地存档修改器  ·  自动备份与读回验证", Left = 22, Top = 49, Width = 430, Height = 24, Font = new Font("Segoe UI", 9F), ForeColor = Color.FromArgb(255, 232, 241), BackColor = Pink });
         var pathLabel = new Label { Left = 22, Top = 72, Width = 710, Height = 20, Font = new Font("Segoe UI", 8F), ForeColor = Color.FromArgb(255, 232, 241), BackColor = Pink, AutoEllipsis = true }; header.Controls.Add(pathLabel);
-        var slotCard = AddCard(18, 112, 724, 73); var valuesCard = AddCard(18, 197, 724, 151); var dateCard = AddCard(18, 360, 724, 64); var safeCard = AddCard(18, 436, 724, 72);
+        var slotCard = AddCard(18, 112, 724, 73); var valuesCard = AddCard(18, 197, 724, 151); var wardrobeCard = AddCard(18, 360, 724, 110); var dateCard = AddCard(18, 482, 724, 64); var safeCard = AddCard(18, 558, 724, 72);
         slotCard.Controls.Add(MakeLabel("选择存档槽位", 15, 9, 180));
         slots.SetBounds(15, 33, 526, 28); slots.DropDownStyle = ComboBoxStyle.DropDownList; StyleInput(slots); slotCard.Controls.Add(slots);
         var choose = new Button { Text = "选择 UserData…", Left = 555, Top = 32, Width = 150, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(247, 222, 235), ForeColor = Ink }; choose.FlatAppearance.BorderColor = Pink; slotCard.Controls.Add(choose);
         string[] labels = { "金钱（0 至 99999999）", "花奈好感度（0 至 1000）", "凛好感度（0 至 1000）", "美羽香好感度（0 至 1000）" };
         valuesCard.Controls.Add(MakeLabel("修改数值", 15, 9, 180));
         for (int i = 0; i < 4; i++) { int column = i % 2; int row = i / 2; valuesCard.Controls.Add(MakeLabel(labels[i], 15 + column * 347, 41 + row * 48, 250)); input[i] = new TextBox { Left = 15 + column * 347, Top = 65 + row * 48, Width = 306, BorderStyle = BorderStyle.FixedSingle }; StyleInput(input[i]); valuesCard.Controls.Add(input[i]); }
+        wardrobeCard.Controls.Add(MakeLabel("角色衣物礼物（直接读写存档状态）", 15, 8, 280));
+        wardrobeCard.Controls.Add(new Label { Text = "角色", Left = 15, Top = 32, Width = 80, Height = 20, ForeColor = Color.FromArgb(134, 106, 125), BackColor = Card });
+        wardrobeCard.Controls.Add(new Label { Text = "感谢内裤套装", Left = 116, Top = 32, Width = 170, Height = 20, ForeColor = Color.FromArgb(134, 106, 125), BackColor = Card });
+        wardrobeCard.Controls.Add(new Label { Text = "裤袜", Left = 422, Top = 32, Width = 170, Height = 20, ForeColor = Color.FromArgb(134, 106, 125), BackColor = Card });
+        string[] chars = { "花奈", "凛", "美羽香" };
+        for (int charIndex = 0; charIndex < 3; charIndex++) { int top = 53 + charIndex * 18; wardrobeCard.Controls.Add(new Label { Text = chars[charIndex], Left = 15, Top = top + 2, Width = 80, Height = 18, ForeColor = Ink, BackColor = Card }); for (int kind = 0; kind < 2; kind++) { wardrobe[charIndex, kind] = new ComboBox { Left = kind == 0 ? 116 : 422, Top = top, Width = 250, Height = 22, DropDownStyle = ComboBoxStyle.DropDownList, Font = new Font("Segoe UI", 8.5F), ForeColor = Ink, BackColor = Color.White }; for (int state = 0; state <= 2; state++) wardrobe[charIndex, kind].Items.Add(new GiftStateChoice(state)); wardrobeCard.Controls.Add(wardrobe[charIndex, kind]); } }
         dateCard.Controls.Add(MakeLabel("游戏日期", 15, 9, 120));
         dateCard.Controls.Add(new Label { Text = "仅列出可操作的周六、周日", Left = 96, Top = 11, Width = 200, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), Font = new Font("Segoe UI", 8.5F), BackColor = Card });
         dateBox.SetBounds(15, 33, 306, 26); dateBox.DropDownStyle = ComboBoxStyle.DropDownList; StyleInput(dateBox); foreach (DateTime day in SaveCodec.PlayableDates()) dateBox.Items.Add(new GameDateChoice(day)); dateCard.Controls.Add(dateBox);
@@ -207,7 +241,7 @@ internal sealed class EditorForm : Form
         try { TryLoad(SaveCodec.FindSaves()[0], pathLabel); } catch (Exception ex) { pathLabel.Text = "未自动载入存档：" + ex.Message; }
     }
     private void TryLoad(string savePath, Label label) { try { data = SaveCodec.Read(savePath); path = savePath; label.Text = path; slots.Items.Clear(); Array all = SaveCodec.Slots(data); for (int i = 0; i < all.Length; i++) { Snapshot s = SaveCodec.Snap(all.GetValue(i), i); if (s.Valid) slots.Items.Add(s); } if (slots.Items.Count == 0) throw new InvalidOperationException("该文件没有非空存档槽位。"); slots.SelectedIndex = 0; } catch (Exception ex) { MessageBox.Show(ex.Message, "无法读取存档", MessageBoxButtons.OK, MessageBoxIcon.Error); } }
-    private void Fill(Snapshot s) { input[0].Text = s.Money.ToString(); input[1].Text = s.Kana.ToString(CultureInfo.InvariantCulture); input[2].Text = s.Rin.ToString(CultureInfo.InvariantCulture); input[3].Text = s.Miuka.ToString(CultureInfo.InvariantCulture); for (int i = 0; i < dateBox.Items.Count; i++) if (((GameDateChoice)dateBox.Items[i]).Value.Date == s.GameDate.Date) { dateBox.SelectedIndex = i; break; } }
+    private void Fill(Snapshot s) { input[0].Text = s.Money.ToString(); input[1].Text = s.Kana.ToString(CultureInfo.InvariantCulture); input[2].Text = s.Rin.ToString(CultureInfo.InvariantCulture); input[3].Text = s.Miuka.ToString(CultureInfo.InvariantCulture); for (int charIndex = 0; charIndex < 3; charIndex++) for (int kind = 0; kind < 2; kind++) wardrobe[charIndex, kind].SelectedIndex = s.WardrobeStates[charIndex * 2 + kind]; for (int i = 0; i < dateBox.Items.Count; i++) if (((GameDateChoice)dateBox.Items[i]).Value.Date == s.GameDate.Date) { dateBox.SelectedIndex = i; break; } }
     private void TrySave(Label label)
     {
         try {
@@ -216,11 +250,12 @@ internal sealed class EditorForm : Form
             if (!float.TryParse(input[1].Text, NumberStyles.Float, CultureInfo.InvariantCulture, out kana) || kana < 0 || kana > 1000) throw new InvalidOperationException("花奈好感度必须是 0 至 1000 的数字。");
             if (!float.TryParse(input[2].Text, NumberStyles.Float, CultureInfo.InvariantCulture, out rin) || rin < 0 || rin > 1000) throw new InvalidOperationException("凛好感度必须是 0 至 1000 的数字。");
             if (!float.TryParse(input[3].Text, NumberStyles.Float, CultureInfo.InvariantCulture, out miuka) || miuka < 0 || miuka > 1000) throw new InvalidOperationException("美羽香好感度必须是 0 至 1000 的数字。");
+            int[] wardrobeStates = new int[6]; for (int charIndex = 0; charIndex < 3; charIndex++) for (int kind = 0; kind < 2; kind++) { if (wardrobe[charIndex, kind].SelectedItem == null) throw new InvalidOperationException("请选择所有角色的衣物礼物状态。"); wardrobeStates[charIndex * 2 + kind] = ((GiftStateChoice)wardrobe[charIndex, kind].SelectedItem).Value; }
             DateTime? date = null; if (dateCheck.Checked) { if (dateBox.SelectedItem == null) throw new InvalidOperationException("请选择一个可操作的周六或周日。"); date = ((GameDateChoice)dateBox.SelectedItem).Value; }
             Snapshot selected = (Snapshot)slots.SelectedItem; string summary = string.Format("槽位 {0}\n金钱：{1}\n花奈 / 凛 / 美羽香：{2} / {3} / {4}\n游戏日期：{5}\n\n是否创建备份并写入？", selected.Index, money, kana, rin, miuka, date.HasValue ? date.Value.ToString("yyyy-MM-dd") : "不变");
             if (MessageBox.Show(summary, "确认修改", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
             string hash = SaveCodec.Sha256(path); var targets = mirrors.Checked ? SaveCodec.FindSaves(SaveCodec.GameRoot(path)).Where(p => SaveCodec.Sha256(p) == hash).ToList() : new List<string> { path }; var backups = new List<string>();
-            foreach (string target in targets) { object targetData = SaveCodec.Read(target); SaveCodec.Apply(targetData, selected.Index, money, kana, rin, miuka, date); backups.Add(SaveCodec.AtomicWrite(target, SaveCodec.Pack(targetData), selected.Index, money, kana, rin, miuka, date)); }
+            foreach (string target in targets) { object targetData = SaveCodec.Read(target); SaveCodec.Apply(targetData, selected.Index, money, kana, rin, miuka, date, wardrobeStates); backups.Add(SaveCodec.AtomicWrite(target, SaveCodec.Pack(targetData), selected.Index, money, kana, rin, miuka, date, wardrobeStates)); }
             TryLoad(path, label); MessageBox.Show("修改完成并已读回验证。\n备份：\n" + string.Join("\n", backups), "完成");
         } catch (Exception ex) { MessageBox.Show(ex.Message, "未写入存档", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
