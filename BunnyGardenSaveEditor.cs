@@ -7,8 +7,10 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Security.Cryptography;
+using System.Threading;
 using System.Windows.Forms;
 
 internal static class Program
@@ -19,6 +21,7 @@ internal static class Program
         try
         {
             if (args.Length == 1 && args[0] == "--self-test") { SaveCodec.SelfTest(); return; }
+            if (args.Length == 2 && args[0] == "--steam-self-test") { SteamAchievementClient.Read(args[1]); SteamAchievementClient.Close(); return; }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new EditorForm());
@@ -205,13 +208,62 @@ internal static class SaveCodec
     }
 }
 
+internal sealed class SteamAchievement
+{
+    public string Id; public string Name; public string Description; public bool Unlocked;
+}
+
+internal static class SteamAchievementClient
+{
+    private static IntPtr stats; private static bool initialized;
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool SetDllDirectory(string path);
+    [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_Init")] [return: MarshalAs(UnmanagedType.I1)] private static extern bool Init();
+    [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_Shutdown")] private static extern void Shutdown();
+    [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_RunCallbacks")] private static extern void RunCallbacks();
+    [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_SteamUserStats_v012")] private static extern IntPtr UserStats();
+    [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamUserStats_RequestCurrentStats")] [return: MarshalAs(UnmanagedType.I1)] private static extern bool RequestCurrentStats(IntPtr self);
+    [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamUserStats_GetNumAchievements")] private static extern uint GetNumAchievements(IntPtr self);
+    [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamUserStats_GetAchievementName")] private static extern IntPtr GetAchievementName(IntPtr self, uint index);
+    [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamUserStats_GetAchievement")] [return: MarshalAs(UnmanagedType.I1)] private static extern bool GetAchievement(IntPtr self, string name, [MarshalAs(UnmanagedType.I1)] out bool achieved);
+    [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamUserStats_GetAchievementDisplayAttribute")] private static extern IntPtr GetAchievementDisplayAttribute(IntPtr self, string name, string key);
+    [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamUserStats_SetAchievement")] [return: MarshalAs(UnmanagedType.I1)] private static extern bool SetAchievement(IntPtr self, string name);
+    [DllImport("steam_api64", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SteamAPI_ISteamUserStats_StoreStats")] [return: MarshalAs(UnmanagedType.I1)] private static extern bool StoreStats(IntPtr self);
+
+    private static void Connect(string gameRoot)
+    {
+        if (initialized) return;
+        string api = Path.Combine(gameRoot, "steam_api64.dll");
+        if (!File.Exists(api)) throw new FileNotFoundException("找不到游戏自带的 Steam 接口文件：" + api + "。请确认 BUNNY GARDEN 已安装。");
+        SetDllDirectory(gameRoot);
+        if (!Init()) throw new InvalidOperationException("SteamAPI 初始化失败。请启动 Steam、确认当前帐号拥有游戏，并从本工具目录重新运行。");
+        stats = UserStats(); if (stats == IntPtr.Zero) { Shutdown(); throw new InvalidOperationException("无法取得 Steam 成就接口。"); }
+        if (!RequestCurrentStats(stats)) { Shutdown(); throw new InvalidOperationException("Steam 拒绝读取当前成就数据。"); }
+        for (int i = 0; i < 100; i++) { RunCallbacks(); if (GetNumAchievements(stats) > 0 && GetAchievementName(stats, 0) != IntPtr.Zero) { initialized = true; return; } Thread.Sleep(50); }
+        Shutdown(); throw new TimeoutException("等待 Steam 成就数据超时。请确认 Steam 已联网后重试。");
+    }
+    public static List<SteamAchievement> Read(string gameRoot)
+    {
+        Connect(gameRoot); var result = new List<SteamAchievement>(); uint count = GetNumAchievements(stats);
+        for (uint i = 0; i < count; i++) { string id = Marshal.PtrToStringAnsi(GetAchievementName(stats, i)); bool unlocked; if (string.IsNullOrEmpty(id) || !GetAchievement(stats, id, out unlocked)) continue; IntPtr n = GetAchievementDisplayAttribute(stats, id, "name"); IntPtr d = GetAchievementDisplayAttribute(stats, id, "desc"); result.Add(new SteamAchievement { Id = id, Name = Marshal.PtrToStringAnsi(n) ?? id, Description = Marshal.PtrToStringAnsi(d) ?? "", Unlocked = unlocked }); }
+        return result;
+    }
+    public static void Unlock(string id)
+    {
+        if (!initialized || stats == IntPtr.Zero) throw new InvalidOperationException("请先读取 Steam 成就状态。");
+        if (!SetAchievement(stats, id)) throw new InvalidOperationException("Steam 拒绝设置该成就：" + id);
+        if (!StoreStats(stats)) throw new InvalidOperationException("Steam 未能保存成就状态。");
+        for (int i = 0; i < 20; i++) { RunCallbacks(); Thread.Sleep(50); }
+    }
+    public static void Close() { if (initialized) Shutdown(); initialized = false; stats = IntPtr.Zero; }
+}
+
 internal sealed class EditorForm : Form
 {
     private static readonly Color Ink = Color.FromArgb(58, 42, 62);
     private static readonly Color Pink = Color.FromArgb(226, 82, 139);
     private static readonly Color PalePink = Color.FromArgb(255, 244, 249);
     private static readonly Color Card = Color.FromArgb(255, 255, 255);
-    private readonly ComboBox slots = new ComboBox(); private readonly TextBox[] input = new TextBox[4]; private readonly ComboBox dateBox = new ComboBox(); private readonly CheckBox dateCheck = new CheckBox(); private readonly CheckBox mirrors = new CheckBox(); private readonly ListView characterList = new ListView(); private readonly ComboBox collectionKind = new ComboBox(); private readonly ListView collectionList = new ListView(); private CollectionStatus collections; private string path; private object data;
+    private readonly ComboBox slots = new ComboBox(); private readonly TextBox[] input = new TextBox[4]; private readonly ComboBox dateBox = new ComboBox(); private readonly CheckBox dateCheck = new CheckBox(); private readonly CheckBox mirrors = new CheckBox(); private readonly ListView characterList = new ListView(); private readonly ComboBox collectionKind = new ComboBox(); private readonly ListView collectionList = new ListView(); private readonly ListView steamList = new ListView(); private readonly Label steamStatus = new Label(); private List<SteamAchievement> steamAchievements = new List<SteamAchievement>(); private CollectionStatus collections; private string path; private object data;
     private Panel AddCard(Control host, int left, int top, int width, int height)
     {
         var card = new Panel { Left = left, Top = top, Width = width, Height = height, BackColor = Card, BorderStyle = BorderStyle.FixedSingle };
@@ -233,7 +285,7 @@ internal sealed class EditorForm : Form
         header.Controls.Add(new Label { Text = "BUNNY GARDEN", Left = 20, Top = 16, Width = 300, Height = 30, Font = new Font("Segoe UI", 18F, FontStyle.Bold), ForeColor = Color.White, BackColor = Pink });
         header.Controls.Add(new Label { Text = "本地存档修改器  ·  自动备份与读回验证", Left = 22, Top = 49, Width = 430, Height = 24, Font = new Font("Segoe UI", 9F), ForeColor = Color.FromArgb(255, 232, 241), BackColor = Pink });
         var pathLabel = new Label { Left = 22, Top = 72, Width = 910, Height = 20, Font = new Font("Segoe UI", 8F), ForeColor = Color.FromArgb(255, 232, 241), BackColor = Pink, AutoEllipsis = true }; header.Controls.Add(pathLabel);
-        var tabs = new TabControl { Left = 12, Top = 106, Width = 924, Height = 532, Font = new Font("Segoe UI", 9F) }; var editTab = new TabPage("修改数值") { BackColor = PalePink }; var characterTab = new TabPage("角色状态（只读）") { BackColor = PalePink }; var collectionTab = new TabPage("事件与收集（只读）") { BackColor = PalePink }; tabs.TabPages.Add(editTab); tabs.TabPages.Add(characterTab); tabs.TabPages.Add(collectionTab); Controls.Add(tabs);
+        var tabs = new TabControl { Left = 12, Top = 106, Width = 924, Height = 532, Font = new Font("Segoe UI", 9F) }; var editTab = new TabPage("修改数值") { BackColor = PalePink }; var characterTab = new TabPage("角色状态（只读）") { BackColor = PalePink }; var collectionTab = new TabPage("事件与收集（只读）") { BackColor = PalePink }; var steamTab = new TabPage("Steam 成就") { BackColor = PalePink }; tabs.TabPages.Add(editTab); tabs.TabPages.Add(characterTab); tabs.TabPages.Add(collectionTab); tabs.TabPages.Add(steamTab); Controls.Add(tabs);
         var slotCard = AddCard(editTab, 12, 12, 874, 73); var valuesCard = AddCard(editTab, 12, 97, 874, 151); var dateCard = AddCard(editTab, 12, 260, 874, 64); var safeCard = AddCard(editTab, 12, 336, 874, 72);
         slotCard.Controls.Add(MakeLabel("选择存档槽位", 15, 9, 180));
         slots.SetBounds(15, 33, 676, 28); slots.DropDownStyle = ComboBoxStyle.DropDownList; StyleInput(slots); slotCard.Controls.Add(slots);
@@ -261,11 +313,19 @@ internal sealed class EditorForm : Form
         collectionTab.Controls.Add(new Label { Text = "游戏记录的是解锁状态：已解锁（新）也算已解锁；本页不修改收集旗标。", Left = 14, Top = 14, Width = 850, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), BackColor = PalePink });
         collectionKind.SetBounds(14, 43, 230, 28); collectionKind.DropDownStyle = ComboBoxStyle.DropDownList; StyleInput(collectionKind); collectionKind.Items.AddRange(new object[] { "事件 CG", "ASMR", "小游戏" }); collectionTab.Controls.Add(collectionKind);
         collectionList.SetBounds(14, 82, 872, 370); collectionList.View = View.Details; collectionList.FullRowSelect = true; collectionList.GridLines = true; collectionList.Columns.Add("编号", 100); collectionList.Columns.Add("状态", 180); collectionTab.Controls.Add(collectionList);
+        steamTab.Controls.Add(new Label { Text = "通过 Steam 客户端读取并逐项解锁成就。需 Steam 运行、拥有并安装游戏；不修改本地画廊或存档旗标。", Left = 14, Top = 14, Width = 850, Height = 22, ForeColor = Color.FromArgb(134, 106, 125), BackColor = PalePink });
+        var readSteam = new Button { Text = "读取 Steam 成就", Left = 14, Top = 43, Width = 160, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(247, 222, 235), ForeColor = Ink }; readSteam.FlatAppearance.BorderColor = Pink; steamTab.Controls.Add(readSteam);
+        var unlockSteam = new Button { Text = "解锁所选成就", Left = 188, Top = 43, Width = 160, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Pink, ForeColor = Color.White, Font = new Font("Segoe UI", 9F, FontStyle.Bold) }; unlockSteam.FlatAppearance.BorderSize = 0; steamTab.Controls.Add(unlockSteam);
+        steamStatus.SetBounds(364, 48, 520, 22); steamStatus.ForeColor = Color.FromArgb(134, 106, 125); steamStatus.BackColor = PalePink; steamTab.Controls.Add(steamStatus);
+        steamList.SetBounds(14, 85, 872, 367); steamList.View = View.Details; steamList.FullRowSelect = true; steamList.GridLines = true; steamList.Columns.Add("状态", 85); steamList.Columns.Add("名称", 220); steamList.Columns.Add("说明", 410); steamList.Columns.Add("Steam ID", 145); steamTab.Controls.Add(steamList);
         collectionKind.SelectedIndexChanged += delegate { FillCollections(); }; collectionKind.SelectedIndex = 0;
         slots.SelectedIndexChanged += delegate { if (slots.SelectedItem != null) Fill((Snapshot)slots.SelectedItem); };
         choose.Click += delegate { using (var dialog = new OpenFileDialog { Title = "选择 BUNNY GARDEN 的 UserData", Filter = "UserData|UserData|所有文件|*.*" }) if (dialog.ShowDialog() == DialogResult.OK) TryLoad(dialog.FileName, pathLabel); };
         save.Click += delegate { TrySave(pathLabel); };
         rich.Click += delegate { TryUnlockRich(pathLabel); };
+        readSteam.Click += delegate { TryLoadSteam(); };
+        unlockSteam.Click += delegate { TryUnlockSteam(); };
+        FormClosed += delegate { SteamAchievementClient.Close(); };
         try { TryLoad(SaveCodec.FindSaves()[0], pathLabel); } catch (Exception ex) { pathLabel.Text = "未自动载入存档：" + ex.Message; }
     }
     private void TryLoad(string savePath, Label label) { try { data = SaveCodec.Read(savePath); collections = SaveCodec.Collections(data); path = savePath; label.Text = path; slots.Items.Clear(); Array all = SaveCodec.Slots(data); for (int i = 0; i < all.Length; i++) { Snapshot s = SaveCodec.Snap(all.GetValue(i), i); if (s.Valid) slots.Items.Add(s); } if (slots.Items.Count == 0) throw new InvalidOperationException("该文件没有非空存档槽位。"); slots.SelectedIndex = 0; } catch (Exception ex) { MessageBox.Show(ex.Message, "无法读取存档", MessageBoxButtons.OK, MessageBoxIcon.Error); } }
@@ -274,6 +334,25 @@ internal sealed class EditorForm : Form
     private static string ProposeState(int value) { return value == 0 ? "未告白" : (value == 1 ? "已接受" : "已拒绝"); }
     private void Fill(Snapshot s) { input[0].Text = s.Money.ToString(); input[1].Text = s.Kana.ToString(CultureInfo.InvariantCulture); input[2].Text = s.Rin.ToString(CultureInfo.InvariantCulture); input[3].Text = s.Miuka.ToString(CultureInfo.InvariantCulture); for (int i = 0; i < dateBox.Items.Count; i++) if (((GameDateChoice)dateBox.Items[i]).Value.Date == s.GameDate.Date) { dateBox.SelectedIndex = i; break; } characterList.Items.Clear(); string[] names = { "花奈", "凛", "美羽香" }; for (int i = 0; i < 3; i++) { CharacterStatus c = s.Characters[i]; characterList.Items.Add(new ListViewItem(new[] { names[i], c.AdvNo.ToString(), c.NoConversationDays.ToString(), c.AfterAdvNo.ToString(), c.HighClassAfterAdvNo.ToString(), c.ASMRCount.ToString(), TripState(c.HolidayAfterState), c.IsInvitedBirthday ? "已邀请" : "未邀请", c.IsPurchasedBirthdayPresent ? "已购买" : "未购买", ProposeState(c.ProposeState), GiftState(s.WardrobeStates[i * 2]), GiftState(s.WardrobeStates[i * 2 + 1]) })); } FillCollections(); }
     private void FillCollections() { if (collections == null || collectionKind.SelectedIndex < 0) return; int[] values = collectionKind.SelectedIndex == 0 ? collections.EventCG : (collectionKind.SelectedIndex == 1 ? collections.ASMR : collections.MiniGame); collectionList.BeginUpdate(); collectionList.Items.Clear(); for (int i = 0; i < values.Length; i++) { string state = values[i] == 0 ? "未解锁" : (values[i] == 1 ? "已解锁（新）" : "已解锁"); collectionList.Items.Add(new ListViewItem(new[] { string.Format("{0:00}", i + 1), state })); } collectionList.EndUpdate(); }
+    private string SteamGameRoot() { return string.IsNullOrEmpty(path) ? SaveCodec.DefaultRoot : SaveCodec.GameRoot(path); }
+    private void TryLoadSteam()
+    {
+        try {
+            if (SaveCodec.GameRunning()) throw new InvalidOperationException("请先退出游戏，再读取或修改 Steam 成就，避免游戏与工具同时写入统计数据。");
+            steamStatus.Text = "正在向 Steam 请求成就数据…"; Application.DoEvents(); steamAchievements = SteamAchievementClient.Read(SteamGameRoot()); steamList.BeginUpdate(); steamList.Items.Clear(); int unlocked = 0;
+            foreach (SteamAchievement achievement in steamAchievements) { if (achievement.Unlocked) unlocked++; steamList.Items.Add(new ListViewItem(new[] { achievement.Unlocked ? "已解锁" : "未解锁", achievement.Name, achievement.Description, achievement.Id })); }
+            steamList.EndUpdate(); steamStatus.Text = string.Format("已读取 {0} 项，已解锁 {1} 项", steamAchievements.Count, unlocked);
+        } catch (Exception ex) { steamStatus.Text = "未连接"; MessageBox.Show(ex.Message, "无法读取 Steam 成就", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+    private void TryUnlockSteam()
+    {
+        try {
+            if (SaveCodec.GameRunning()) throw new InvalidOperationException("请先退出游戏，再修改 Steam 成就。"); if (steamList.SelectedIndices.Count != 1) throw new InvalidOperationException("请在列表中选择一项成就。");
+            SteamAchievement achievement = steamAchievements[steamList.SelectedIndices[0]]; if (achievement.Unlocked) { MessageBox.Show("该 Steam 成就已经解锁。", "无需修改"); return; }
+            if (MessageBox.Show("解锁 Steam 成就？\n\n" + achievement.Name + "\n" + achievement.Description + "\n\nSteam ID：" + achievement.Id + "\n\n此操作会请求 Steam 客户端保存成就，无法由本工具撤销。", "确认解锁", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+            SteamAchievementClient.Unlock(achievement.Id); MessageBox.Show("Steam 已接受保存请求。请等待 Steam 客户端同步后，点击“读取 Steam 成就”确认。", "已提交"); TryLoadSteam();
+        } catch (Exception ex) { MessageBox.Show(ex.Message, "未提交 Steam 成就", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
     private void TrySave(Label label)
     {
         try {
